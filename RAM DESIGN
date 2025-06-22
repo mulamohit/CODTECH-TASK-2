@@ -1,122 +1,141 @@
-// Simple Synchronous RAM Module
-module simple_sync_ram #(
+// ------------------------------------------Simple Synchronous RAM Module--------------------------------------------------
+module ram #(
     parameter DATA_WIDTH = 8,
     parameter ADDR_WIDTH = 4
 )(
-    input wire clk,
-    input wire we, // Write Enable: 1=Write, 0=Read
-    input wire [ADDR_WIDTH-1:0] addr,
-    input wire [DATA_WIDTH-1:0] din,
-    output reg [DATA_WIDTH-1:0] dout
+    input  wire                  clk,
+    input  wire                  rst,
+    input  wire                  we,       // Write Enable
+    input  wire [ADDR_WIDTH-1:0] addr,     // Address bus
+    input  wire [DATA_WIDTH-1:0] din,      // Data input
+    output reg  [DATA_WIDTH-1:0] dout      // Data output
 );
 
     // Memory array
-    reg [DATA_WIDTH-1:0] mem [0:(1<<ADDR_WIDTH)-1];
+    reg [DATA_WIDTH-1:0] mem [(2**ADDR_WIDTH)-1:0];
 
     always @(posedge clk) begin
-        if (we) begin
-            mem[addr] <= din;      // Write operation
+        if (rst) begin
+            dout <= 'b0;
+        end else begin
+            if (we) begin
+                mem[addr] <= din;
+                dout <= din; // Optional: output the written value immediately
+            end else begin
+                dout <= mem[addr];
+            end
         end
-        dout <= mem[addr];         // Read is always available (read-during-write = new data)
     end
 
 endmodule
-// Testbench for Simple Synchronous RAM
-`timescale 1ns/1ps
-
-module simple_sync_ram_tb;
+// --------------------------------------Testbench for Simple Synchronous RAM--------------------------------------------------
+module ram_tb;
 
     parameter DATA_WIDTH = 8;
     parameter ADDR_WIDTH = 4;
 
     reg clk;
+    reg rst;
     reg we;
     reg [ADDR_WIDTH-1:0] addr;
     reg [DATA_WIDTH-1:0] din;
     wire [DATA_WIDTH-1:0] dout;
 
-    // Instantiate the RAM
-    simple_sync_ram #(.DATA_WIDTH(DATA_WIDTH), .ADDR_WIDTH(ADDR_WIDTH)) uut (
+    // Instantiate RAM
+    ram #(
+        .DATA_WIDTH(DATA_WIDTH),
+        .ADDR_WIDTH(ADDR_WIDTH)
+    ) uut (
         .clk(clk),
+        .rst(rst),
         .we(we),
         .addr(addr),
         .din(din),
         .dout(dout)
     );
 
-    // Clock generation
-    always #5 clk = ~clk;
+    // Clock Generator
+    initial clk = 0;
+    always #5 clk = ~clk; // 100MHz
 
     initial begin
-        $display("==== Synchronous RAM Testbench ====");
-        clk = 0;
+        $display("Starting RAM testbench...");
+        rst = 1;
         we = 0;
         addr = 0;
         din = 0;
+        #12;
 
-        // Write some values into memory
-        @(negedge clk); we = 1; addr = 4'd0; din = 8'hA5;
-        @(negedge clk); addr = 4'd1; din = 8'h5A;
-        @(negedge clk); addr = 4'd2; din = 8'hFF;
-        @(negedge clk); addr = 4'd3; din = 8'h00;
-        @(negedge clk); we = 0; // Stop writing
+        rst = 0;
+        // Write pattern to memory
+        for (integer i = 0; i < 8; i = i + 1) begin
+            @(negedge clk);
+            addr = i[ADDR_WIDTH-1:0];
+            din = i + 8'hA0;
+            we = 1;
+        end
 
-        // Read back the values
-        @(negedge clk); addr = 4'd0;
         @(negedge clk);
-        $display("Read addr 0: dout = %h (expected A5)", dout);
-        @(negedge clk); addr = 4'd1;
-        @(negedge clk);
-        $display("Read addr 1: dout = %h (expected 5A)", dout);
-        @(negedge clk); addr = 4'd2;
-        @(negedge clk);
-        $display("Read addr 2: dout = %h (expected FF)", dout);
-        @(negedge clk); addr = 4'd3;
-        @(negedge clk);
-        $display("Read addr 3: dout = %h (expected 00)", dout);
+        we = 0;
 
-        // Check write-during-read
-        @(negedge clk); we = 1; addr = 4'd0; din = 8'h12;
-        @(negedge clk); we = 0; addr = 4'd0;
-        @(negedge clk);
-        $display("Overwrite addr 0: dout = %h (expected 12)", dout);
+        // Read back pattern
+        for (integer i = 0; i < 8; i = i + 1) begin
+            @(negedge clk);
+            addr = i[ADDR_WIDTH-1:0];
+            we = 0;
+            #1;
+            $display("Read addr=%0d, data=%0h (expected %0h)", addr, dout, i+8'hA0);
+        end
 
+        // Test overwrite
+        @(negedge clk);
+        addr = 3;
+        din = 8'h55;
+        we = 1;
+        @(negedge clk);
+        we = 0;
+        @(negedge clk);
+        addr = 3;
+        $display("Overwrite test: addr=3, data=%0h (expected 55)", dout);
+
+        $display("RAM testbench completed.");
         $finish;
     end
 
 endmodule
-# Simple Synchronous RAM (Verilog)
+//----------------------------# Simple Synchronous RAM (Verilog)----------------------------
 
 ## Files
 
-- `simple_sync_ram.v`: The RAM module.
-- `simple_sync_ram_tb.v`: Testbench demonstrating RAM functionality.
+- `ram.v`: Synchronous RAM module with parameterizable data and address width.
+- `ram_tb.v`: Testbench for the RAM module.
 
 ## Features
 
-- Parameterized data and address width.
-- Synchronous write and read on rising clock edge.
-- Simple interface: `clk`, `we`, `addr`, `din`, `dout`.
+- Synchronous read and write operations.
+- Read returns data at the addressed location.
+- Write operation (when `we` is high) writes `din` to the addressed location.
+- Output (`dout`) is updated on the next clock edge.
+- Reset (`rst`) clears the output.
 
 ## How to Simulate
 
-1. Compile both files using your favorite Verilog simulator (Icarus Verilog, ModelSim, etc.):
+1. **Using Icarus Verilog:**
+
    ```
-   iverilog -o ram_sim simple_sync_ram.v simple_sync_ram_tb.v
-   vvp ram_sim
+   iverilog -o ram_tb ram.v ram_tb.v
+   vvp ram_tb
    ```
-2. You should see output showing read/write operations and their expected values.
 
-## Expected Output
+2. **Expected Output:**
 
-```
-==== Synchronous RAM Testbench ====
-Read addr 0: dout = a5 (expected A5)
-Read addr 1: dout = 5a (expected 5A)
-Read addr 2: dout = ff (expected FF)
-Read addr 3: dout = 00 (expected 00)
-Overwrite addr 0: dout = 12 (expected 12)
-```
+   The testbench writes a pattern to RAM, reads it back, and tests overwriting a location. Check the console for messages like:
+   ```
+   Read addr=0, data=a0 (expected a0)
+   ...
+   Overwrite test: addr=3, data=55 (expected 55)
+   ```
 
----
-You can modify `DATA_WIDTH` and `ADDR_WIDTH` in both files to increase RAM size or data width.
+## Customization
+
+- Change `DATA_WIDTH` or `ADDR_WIDTH` in the testbench and module for different RAM sizes.
